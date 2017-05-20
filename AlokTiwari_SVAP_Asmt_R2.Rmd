@@ -1,0 +1,211 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r, eval=FALSE}
+# Analyze the census data and predict whether the income exceeds $50K per year
+
+# install and load required libraries
+
+# install.packages("ggplot2")
+# install.packages("ROCR")
+# install.packages("stringr")
+# install.packages("tidyr")
+# install.packages("tidyverse")
+# install.packages("caTools")
+# library(caTools)
+# library(ROCR)
+# library(ggplot2)
+# library(stringr)
+# library(tidyr)
+# library(tidyverse)
+# library(gridExtra)
+
+# read data file and assign NA to blank rows
+rawdata <- read.csv("C:/Users/RA/Documents/CensusData.csv")
+rawdata[rawdata == ' ?'] = NA
+
+# omit NAs
+final_data = na.omit(rawdata)
+summary(final_data)
+attach(final_data)
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+```{r}
+
+# check variable types in the dataset
+str(final_data)
+
+# Income is a factor variable, thus we need classification approach
+# Applying logictic regression to predict the income variable
+
+myplot1 <- ggplot(final_data, aes(Income, age, color=Income)) + 
+            geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+myplot2 <- ggplot(final_data, aes(Income, fnlwgt, color=Income)) + 
+            geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+myplot3 <- ggplot(final_data, aes(Income, education.num, color=Income)) + 
+            geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+myplot4 <- ggplot(final_data, aes(Income, hours.per.week, color=Income)) + 
+            geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+grid.arrange(myplot1, myplot2, myplot3, myplot4, ncol=2, nrow =2)
+
+# Boxplot for age shows that higher the age higher is the income
+# Boxplot for fnlwgt does show any stark difference between two income groups
+# higher is no. of years of education higher is Income
+# Higher hours per week show inclination towards higher Income
+
+```
+
+```{r}
+
+# There are lot of outliers in all four continuous variables. Treat outliers appropriately
+# replace outliers with max suggested value from boxplot for age as most outliers are towards higher  age group
+b1 <- boxplot.stats(age)
+final_data$age = ifelse(final_data$age > b1$stats[5], b1$stats[5], final_data$age)
+
+`
+b2 <- boxplot.stats(fnlwgt)
+final_data$fnlwgt = ifelse(final_data$fnlwgt > b2$stats[5], b2$stats[5], final_data$fnlwgt)
+#final_data$fnlwgt = ifelse(final_data$fnlwgt < b2$stats[1], b2$stats[1], final_data$fnlwgt)
+
+b3 <- boxplot.stats(education.num)
+mean1 = mean(final_data$education.num)
+Stdev = sd(final_data$education.num)
+minlimit = mean1 - 2*Stdev
+maxlimit = mean1 + 2*Stdev
+final_data$education.num = ifelse(final_data$education.num > round(maxlimit), round(maxlimit), final_data$education.num)
+final_data$education.num = ifelse(final_data$education.num < round(minlimit), round(minlimit), final_data$education.num)
+
+
+mean1 = mean(final_data$hours.per.week)
+Stdev = sd(final_data$hours.per.week)
+minlimit = mean1 - 2*Stdev
+maxlimit = mean1 + 2*Stdev
+final_data$hours.per.week = ifelse(final_data$hours.per.week > round(maxlimit), round(maxlimit), final_data$hours.per.week)
+final_data$hours.per.week = ifelse(final_data$hours.per.week < round(minlimit), round(minlimit), final_data$hours.per.week)
+
+myplot1 <- ggplot(final_data, aes(Income, age, color=Income)) + 
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+myplot2 <- ggplot(final_data, aes(Income, fnlwgt, color=Income)) + 
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+myplot3 <- ggplot(final_data, aes(Income, education.num, color=Income)) + 
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+myplot4 <- ggplot(final_data, aes(Income, hours.per.week, color=Income)) + 
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, outlier.size = 2)
+
+
+library(gridExtra)
+grid.arrange(myplot1, myplot2, myplot3, myplot4, ncol=2, nrow =2)
+```
+
+```{r}
+
+# divide the dataset into two datasets. One will be used to train the model, whiel other one will be used for testing the model
+final_data$Income = as.factor(trimws(final_data$Income, c("both")))
+final_data$education.num = as.factor(final_data$education.num)
+
+data_incomelessthan50 = final_data[(final_data$Income == levels(final_data$Income)[1]),]
+data_incomemorethan50 = final_data[final_data$Income == levels(final_data$Income)[2],]
+
+set.seed(101) 
+index_trainlessthan50 = sample.split(data_incomelessthan50$age, SplitRatio = .75)
+index_trainmorethan50 = sample.split(data_incomemorethan50$age, SplitRatio = .75)
+
+train_lessthan50 = data_incomelessthan50[index_trainlessthan50, 1:15]
+test_lessthan50 = data_incomelessthan50[!index_trainlessthan50, 1:15]
+train_morethan50 = data_incomemorethan50[index_trainmorethan50, 1:15]
+test_morethan50 = data_incomemorethan50[!index_trainmorethan50, 1:15]
+traning_data = rbind(train_lessthan50,train_morethan50)
+testing_data = rbind(test_lessthan50, test_morethan50)
+
+```
+
+```{r}
+# use glm() to build logistic regression model
+model1 = glm(Income ~ age + workclass + fnlwgt + education + education.num +  marital.status + occupation + race + sex + capital.gain + 
+               capital.loss + hours.per.week + native.country, data = traning_data, family = "binomial")
+summary(model1)
+
+# As coefficient for variable education.num is NA for all levels, this shows that it is linearly related to some other variable
+# native country is not that relevant to the model based on p-value
+# Dropping above mentioned variables and re-training the model
+
+model1 = glm(Income ~ age + workclass + fnlwgt + education +  marital.status + occupation + race + sex + capital.gain + 
+               capital.loss + hours.per.week, data = traning_data, family = "binomial")
+summary(model1)
+```
+
+
+```{r}
+# predicting values for tessting data set based on the trained model
+pred = predict(model1,testing_data,type="response")
+pred1 = round(pred, 0)
+combined = cbind(testing_data$Income, pred1)
+df_combined = data.frame(combined)
+
+# generating confusion matrix
+tb = table(df_combined$V1, df_combined$pred1)
+tb
+
+# generating ROC Curve
+preds = prediction(as.numeric(pred), as.numeric(testing_data$Income))
+perf = performance(preds, "tpr", "fpr")
+plot(perf)
+
+link_score = predict(model1,testing_data, type="link")
+
+score_data <- data.frame(link=link_score, 
+                         response=pred,
+                         bad_widget=testing_data$Income,
+                         stringsAsFactors=FALSE)
+
+score_data %>% 
+  ggplot(aes(x=link, y=response, col=bad_widget)) + 
+  scale_color_manual(values=c("black", "red")) + 
+  geom_point() + 
+  geom_rug() + 
+  ggtitle("Both link and response scores put cases in the same order")
+
+
+# As the curve is close to True positive axis and then the top border of the ROC space, the test is pretty accurate
+```
+
+
+```{r}
+
+# The sensitivity (otherwise known as the true positive rate) is the proportion of successful extubations that are correctly classified as such, while the specificity (otherwise known as the true negative rate) is the proportion of unsuccessful extubations that are correctly classified as such.
+
+
+true_positive = tb[1]
+False_positive = tb[2]
+false_negative = tb[3]
+True_negative = tb[4]
+
+Model_performance = (true_positive + True_negative)/(true_positive+True_negative+False_positive+false_negative) * 100
+print(paste("Model Performance", round(Model_performance, digits = 2))) 
+
+Model_Sensitivity = true_positive/(true_positive+false_negative) * 100
+print(paste("Model Sensitivity", round(Model_Sensitivity, digits = 2)))
+
+Model_SPecificity = True_negative/(True_negative+False_positive) * 100
+print(paste("Model Specificity", round(Model_SPecificity, digits = 2)))
+
+#  Model is 85% accurate, is highly sensitive but has low specificity
+```
+
